@@ -38,7 +38,8 @@ export interface CustomWorkout {
 }
 
 export interface Meal {
-  mealType: MealType;
+  id: number;
+  mealType: MealType | string;
   title: string;
   description: string;
   ingredients: string[];
@@ -52,16 +53,10 @@ export interface DietPlan {
   borderColor: string;
   iconColor: string;
   iconBg: string;
-  icon: ReactNode | null;
-  dietType: DietType;
+  icon?: ReactNode | null;
+  dietType: DietType | string;
   calorieRange: string;
   meals: Meal[];
-}
-
-export interface AIResponse {
-  text: string;
-  workout: CustomWorkout | null;
-  dietPlan: DietPlan | null;
 }
 
 export interface WorkoutHistoryItem {

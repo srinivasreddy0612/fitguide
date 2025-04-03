@@ -24,6 +24,39 @@ const ChatMessages: React.FC<ChatMessagesProps> = ({
     }
   }, [chatMessages, showChatbot]);
 
+  // Function to format meal data from diet plans
+  const formatMeals = (meals: any[]) => {
+    if (!meals || !Array.isArray(meals) || meals.length === 0) {
+      return <p className="text-white/60 italic">No meals specified</p>;
+    }
+
+    return (
+      <div className="space-y-3 mt-3">
+        {meals.map((meal, index) => (
+          <div key={index} className="bg-white/5 rounded-md p-2">
+            <div className="flex justify-between items-center">
+              <div className="font-medium text-white/90">{meal.title}</div>
+              <div className="text-xs bg-white/10 px-2 py-1 rounded-full text-white/70">{meal.mealType}</div>
+            </div>
+            <div className="text-xs text-white/70 mt-1">{meal.description}</div>
+            {meal.ingredients && meal.ingredients.length > 0 && (
+              <div className="mt-1">
+                <p className="text-xs text-white/60 mb-1">Ingredients:</p>
+                <div className="flex flex-wrap gap-1">
+                  {meal.ingredients.map((ingredient: string, idx: number) => (
+                    <span key={idx} className="text-xs bg-white/5 px-2 py-0.5 rounded-full text-white/80">
+                      {ingredient}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+    );
+  };
+
   return (
     <div className="flex-1 overflow-y-auto p-4 bg-black/50 backdrop-blur-sm">
       <div className="space-y-4">
@@ -43,17 +76,35 @@ const ChatMessages: React.FC<ChatMessagesProps> = ({
               {message.isLoading && (
                 <div className="mt-2 flex items-center">
                   <Loader2 size={12} className="animate-spin mr-2" />
-                  <span className="text-xs text-white/60">Generating workout...</span>
+                  <span className="text-xs text-white/60">Generating...</span>
                 </div>
               )}
-              {message.workout && (
+              
+              {/* Display workout information if available */}
+              {(message.workout || message.tempWorkout) && (
                 <div className="mt-2 pt-2 border-t border-white/10">
-                  <span className="text-xs text-green-400">✓ New workout added to your collection</span>
+                  {message.workout ? (
+                    <span className="text-xs text-green-400">✓ New workout added to your collection</span>
+                  ) : (
+                    <span className="text-xs text-blue-400">Preview of workout plan</span>
+                  )}
                 </div>
               )}
-              {message.tempWorkout && (
+              
+              {/* Display diet plan information if available */}
+              {(message.dietPlan || message.tempDietPlan) && (
                 <div className="mt-2 pt-2 border-t border-white/10">
-                  <span className="text-xs text-blue-400">Preview of workout plan</span>
+                  {message.dietPlan ? (
+                    <>
+                      <span className="text-xs text-green-400 block mb-2">✓ New diet plan added</span>
+                      {message.dietPlan.meals && formatMeals(message.dietPlan.meals)}
+                    </>
+                  ) : (
+                    <>
+                      <span className="text-xs text-blue-400 block mb-2">Preview of nutrition plan</span>
+                      {message.tempDietPlan && message.tempDietPlan.meals && formatMeals(message.tempDietPlan.meals)}
+                    </>
+                  )}
                 </div>
               )}
             </div>

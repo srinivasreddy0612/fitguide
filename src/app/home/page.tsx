@@ -1,12 +1,13 @@
 "use client"
 import React, { useState, useEffect } from 'react';
-import { Dumbbell } from 'lucide-react';
+import { Dumbbell, Apple } from 'lucide-react';
 import { useUser } from '@clerk/nextjs';
 import { useRouter } from 'next/navigation';
 import Navbar from './Navbar';
 import AICoach from './AICoach';
 import CalendarComponent from './CalendarComponent';
 import WorkoutComponent from './WorkoutComponent';
+import DietPlanComponent from './DietPlanComponent';
 
 // Define interfaces for our data types
 interface WorkoutHistoryItem {
@@ -17,7 +18,14 @@ interface WorkoutHistoryItem {
   completed: boolean;
 }
 
-// Make sure this matches the interface in AICoach.tsx
+interface DietHistoryItem {
+  id: number;
+  date: string;
+  mealName: string;
+  dietPlanName: string;
+  completed: boolean;
+}
+
 interface CustomWorkout {
   id?: number | string;
   title: string;
@@ -32,6 +40,28 @@ interface CustomWorkout {
   exercises?: string[];
   workoutType?: 'strength' | 'hiit' | 'yoga' | 'core';
   focusArea?: string;
+}
+
+interface Meal {
+  id: number;
+  mealType: string;
+  title: string;
+  description: string;
+  ingredients: string[];
+}
+
+interface DietPlan {
+  id: number | string;
+  title: string;
+  description: string;
+  dietType: string;
+  calorieRange: string;
+  meals: Meal[];
+  color: string;
+  borderColor: string;
+  iconColor: string;
+  iconBg: string;
+  icon?: React.ReactNode;
 }
 
 // Define a more specific type with required fields for WorkoutComponent
@@ -49,11 +79,17 @@ export default function HomePage(): React.ReactElement {
   // State for custom workouts created by AI
   const [customWorkouts, setCustomWorkouts] = useState<CustomWorkout[]>([]);
   
+  // New state for diet plans created by AI
+  const [dietPlans, setDietPlans] = useState<DietPlan[]>([]);
+  
+  // State for workout history
+  const [workoutHistory, setWorkoutHistory] = useState<WorkoutHistoryItem[]>([]);
+  
+  // New state for diet history
+  const [dietHistory, setDietHistory] = useState<DietHistoryItem[]>([]);
+  
   // State for redirecting to onboarding if needed
   const [needsOnboarding, setNeedsOnboarding] = useState<boolean>(false);
-  
-  // Workout history data - initialize as empty
-  const [workoutHistory, setWorkoutHistory] = useState<WorkoutHistoryItem[]>([]);
   
   // Function to toggle chatbot visibility
   const toggleChatbot = (): void => {
@@ -84,16 +120,40 @@ export default function HomePage(): React.ReactElement {
     localStorage.setItem('customWorkouts', JSON.stringify([...existingWorkouts, serializableWorkout]));
   };
   
+  // Function to add a new diet plan from AI
+  const addDietPlan = (dietPlan: DietPlan): void => {
+    // Make sure we have an icon for the diet plan
+    const dietPlanWithIcon: DietPlan = {
+      ...dietPlan,
+      icon: dietPlan.icon || <Apple className={dietPlan.iconColor || "text-white"} />,
+      // Ensure the id is set if it's undefined
+      id: dietPlan.id || Math.floor(Math.random() * 10000)
+    };
+    
+    setDietPlans(prev => [...prev, dietPlanWithIcon]);
+    
+    // Also save to localStorage to persist the data
+    const existingDietPlans = JSON.parse(localStorage.getItem('dietPlans') || '[]');
+    // Make sure we're storing a serializable version without React elements
+    const serializableDietPlan = {
+      ...dietPlan,
+      // Don't include the icon when storing in localStorage as it's a React element
+      icon: undefined,
+      id: dietPlan.id || Math.floor(Math.random() * 10000)
+    };
+    localStorage.setItem('dietPlans', JSON.stringify([...existingDietPlans, serializableDietPlan]));
+  };
+  
   // Function to redirect to onboarding
   const goToOnboarding = (): void => {
     router.push('/onboarding');
   };
   
-  // Check for onboarding status and load workout data
+  // Check for onboarding status and load workout & diet data
   useEffect(() => {
     if (typeof window === 'undefined') return;
     
-    console.log("HomePage mounted - checking for workout plans");
+    console.log("HomePage mounted - checking for workout plans and diet plans");
     
     // Check if this is a direct access or coming from onboarding
     const url = new URL(window.location.href);
@@ -166,6 +226,23 @@ export default function HomePage(): React.ReactElement {
       }
     }
     
+    // Load diet plans if available
+    const dietPlansJson = localStorage.getItem('dietPlans');
+    if (dietPlansJson && dietPlans.length === 0) {
+      try {
+        const savedDietPlans = JSON.parse(dietPlansJson);
+        const processedDietPlans = savedDietPlans.map((plan: DietPlan) => ({
+          ...plan,
+          icon: <Apple className={plan.iconColor || "text-green-500"} />,
+          id: plan.id || Math.floor(Math.random() * 10000)
+        }));
+        setDietPlans(processedDietPlans);
+        console.log("Loaded saved diet plans:", processedDietPlans);
+      } catch (error) {
+        console.error("Error loading diet plans:", error);
+      }
+    }
+    
     // If there's no cookie but we have workout data, try to set the cookie
     if (!isOnboardingComplete && (initialPlanJson || localStorage.getItem('customWorkouts'))) {
       const expiryDate = new Date();
@@ -174,7 +251,7 @@ export default function HomePage(): React.ReactElement {
       console.log("Set onboardingComplete cookie as it was missing but we have workout data");
     }
     
-    // Also load workout history if available
+    // Load workout history if available
     const workoutHistoryJson = localStorage.getItem('workoutHistory');
     if (workoutHistoryJson) {
       try {
@@ -184,7 +261,18 @@ export default function HomePage(): React.ReactElement {
         console.error("Error loading workout history:", error);
       }
     }
-  }, [customWorkouts.length, router]);
+    
+    // Load diet history if available
+    const dietHistoryJson = localStorage.getItem('dietHistory');
+    if (dietHistoryJson) {
+      try {
+        const savedDietHistory = JSON.parse(dietHistoryJson);
+        setDietHistory(savedDietHistory);
+      } catch (error) {
+        console.error("Error loading diet history:", error);
+      }
+    }
+  }, [customWorkouts.length, dietPlans.length, router]);
   
   // If we need onboarding, redirect after a short delay
   useEffect(() => {
@@ -212,6 +300,15 @@ export default function HomePage(): React.ReactElement {
       localStorage.setItem('workoutHistory', JSON.stringify(workoutHistory));
     }
   }, [workoutHistory]);
+  
+  // Save diet history when it changes
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    
+    if (dietHistory.length > 0) {
+      localStorage.setItem('dietHistory', JSON.stringify(dietHistory));
+    }
+  }, [dietHistory]);
   
   // If we need onboarding, show a loading state
   if (needsOnboarding) {
@@ -248,26 +345,26 @@ export default function HomePage(): React.ReactElement {
           </h1>
           <p className={`text-white/60 mb-8 ${showChatbot ? 'text-left text-xs' : 'text-center text-sm max-w-lg mx-auto'}`}>
             {customWorkouts.length > 0 
-              ? "Here's your personalized workout plan. Select a workout to begin your fitness journey."
-              : "Complete the onboarding process or use the AI coach to create personalized workouts."}
+              ? "Here's your personalized plan. Select a workout to begin your fitness journey or explore your nutrition plans."
+              : "Complete the onboarding process or use the AI coach to create personalized workouts and diet plans."}
           </p>
           
           {/* No workouts message */}
-          {customWorkouts.length === 0 && (
+          {customWorkouts.length === 0 && dietPlans.length === 0 && (
             <div className="text-center mb-8 max-w-lg mx-auto p-6 backdrop-blur-lg bg-white/5 rounded-xl border border-white/10">
               <h2 className="text-xl font-medium mb-4 text-white/90">Get Started with Your Fitness Journey</h2>
-              <p className="text-white/60 mb-6">You don't have any workouts yet. Complete the onboarding to create a personalized workout plan based on your goals.</p>
+              <p className="text-white/60 mb-6">You don't have any workouts or nutrition plans yet. Complete the onboarding to create a personalized plan based on your goals.</p>
               <button 
                 onClick={goToOnboarding}
                 className="bg-white/10 backdrop-blur-sm border border-white/10 text-white px-6 py-2 rounded-lg text-sm font-medium hover:bg-white/15 transition mx-auto"
               >
-                Create Your Workout Plan
+                Create Your Plan
               </button>
-              <p className="text-white/40 text-xs mt-4">Or use the AI Coach to create individual workouts.</p>
+              <p className="text-white/40 text-xs mt-4">Or use the AI Coach to create individual workouts and nutrition plans.</p>
             </div>
           )}
           
-          {/* Workout Component - now using the filtered workouts with IDs */}
+          {/* Workout Component */}
           <WorkoutComponent 
             showChatbot={showChatbot} 
             setWorkoutHistory={setWorkoutHistory}
@@ -276,6 +373,13 @@ export default function HomePage(): React.ReactElement {
               icon: workout.icon || <Dumbbell className={workout.iconColor || "text-white"} />
             }))}
             defaultWorkouts={[]} // No more default workouts
+          />
+          
+          {/* Diet Plan Component */}
+          <DietPlanComponent
+            showChatbot={showChatbot}
+            dietPlans={dietPlans}
+            setDietHistory={setDietHistory}
           />
           
           {/* Calendar Component */}
@@ -291,6 +395,7 @@ export default function HomePage(): React.ReactElement {
         showChatbot={showChatbot} 
         toggleChatbot={toggleChatbot}
         addWorkout={addWorkout}
+        addDietPlan={addDietPlan}
       />
     </div>
   );
