@@ -107,7 +107,27 @@ export default function HomePage(): React.ReactElement {
         console.log(`Syncing ${dataType} with MongoDB...`);
       }
       
-      // Use the middleware-free endpoint
+      // Ensure all items have unique IDs that won't conflict across resets
+      let processedData = data;
+      
+      // For arrays of items, ensure each has a properly formatted ID
+      if (Array.isArray(data) && dataType !== 'workoutHistory' && dataType !== 'dietHistory') {
+        processedData = data.map(item => {
+          // If no ID exists, create one
+          if (!item.id) {
+            return { ...item, id: `${Date.now()}-${Math.random().toString(36).substring(2, 9)}` };
+          }
+          
+          // If ID is just a number (from Date.now()), convert it to a string with prefix
+          if (typeof item.id === 'number') {
+            return { ...item, id: `${dataType}-${item.id}` };
+          }
+          
+          return item;
+        });
+      }
+      
+      // Use the updated API endpoint
       const response = await fetch('/api/mongodb-data', {
         method: 'POST',
         headers: {
@@ -116,7 +136,7 @@ export default function HomePage(): React.ReactElement {
         body: JSON.stringify({
           userId: user.id,
           dataType,
-          data,
+          data: processedData,
           action: 'save'
         }),
       });
@@ -127,7 +147,7 @@ export default function HomePage(): React.ReactElement {
         console.error(`MongoDB sync error (${dataType}):`, result.error || 'Unknown error');
         
         // Always save to localStorage as fallback
-        setItem(dataType, data, user.id);
+        setItem(dataType, processedData, user.id);
         return false;
       }
       
@@ -136,8 +156,8 @@ export default function HomePage(): React.ReactElement {
         console.log(`✅ MongoDB: ${result.message}`);
       }
       
-      // Also save to localStorage for offline access
-      setItem(dataType, data, user.id);
+      // Also save processed data to localStorage for offline access
+      setItem(dataType, processedData, user.id);
       
       return true;
     } catch (error) {
@@ -150,9 +170,10 @@ export default function HomePage(): React.ReactElement {
     }
   }, [user]);
   
+  
   // Function to load data from MongoDB - UPDATED with cleaner logging
   const loadFromMongoDB = useCallback(async () => {
-    if (!user) return;
+    if (!user) return false;
     
     try {
       console.log("Loading data from MongoDB...");
@@ -182,13 +203,13 @@ export default function HomePage(): React.ReactElement {
       let itemsLoaded = 0;
       
       // Process workouts if available
-      if (data.workouts && Array.isArray(data.workouts) && data.workouts.length > 0) {
+      if (data.workouts && data.workouts.length > 0) {
         itemsLoaded += data.workouts.length;
         
         const processedWorkouts = data.workouts.map((workout: CustomWorkout) => ({
           ...workout,
           icon: <Dumbbell className={workout.iconColor || "text-white"} />,
-          id: workout.id || Math.floor(Math.random() * 10000)
+          id: workout.id || `workout-${Math.floor(Math.random() * 10000)}`
         }));
         
         setCustomWorkouts(processedWorkouts);
@@ -198,13 +219,13 @@ export default function HomePage(): React.ReactElement {
       }
       
       // Process diet plans if available
-      if (data.dietPlans && Array.isArray(data.dietPlans) && data.dietPlans.length > 0) {
+      if (data.dietPlans && data.dietPlans.length > 0) {
         itemsLoaded += data.dietPlans.length;
         
         const processedDietPlans = data.dietPlans.map((plan: DietPlan) => ({
           ...plan,
           icon: <Apple className={plan.iconColor || "text-green-500"} />,
-          id: plan.id || Math.floor(Math.random() * 10000)
+          id: plan.id || `diet-${Math.floor(Math.random() * 10000)}`
         }));
         
         setDietPlans(processedDietPlans);
@@ -214,7 +235,7 @@ export default function HomePage(): React.ReactElement {
       }
       
       // Process workout history if available
-      if (data.workoutHistory && Array.isArray(data.workoutHistory) && data.workoutHistory.length > 0) {
+      if (data.workoutHistory && data.workoutHistory.length > 0) {
         itemsLoaded += data.workoutHistory.length;
         
         setWorkoutHistory(data.workoutHistory);
@@ -224,7 +245,7 @@ export default function HomePage(): React.ReactElement {
       }
       
       // Process diet history if available
-      if (data.dietHistory && Array.isArray(data.dietHistory) && data.dietHistory.length > 0) {
+      if (data.dietHistory && data.dietHistory.length > 0) {
         itemsLoaded += data.dietHistory.length;
         
         setDietHistory(data.dietHistory);

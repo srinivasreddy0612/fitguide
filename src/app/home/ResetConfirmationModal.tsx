@@ -23,12 +23,42 @@ const ResetConfirmationModal: React.FC<ResetConfirmationModalProps> = ({
   if (!isOpen) return null;
 
   // Function to clear data and start onboarding
-  const handleReset = () => {
+  const handleReset = async () => {
+    if (!user) {
+      onClose();
+      return;
+    }
+    
+    try {
+      // First, reset data in MongoDB to prevent duplicate keys on reload
+      const response = await fetch('/api/mongodb-data', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          userId: user.id,
+          dataType: 'all', // Reset all data except history
+          action: 'reset'
+        }),
+      });
+      
+      if (!response.ok) {
+        console.error('Failed to reset MongoDB data');
+      } else {
+        console.log('✅ MongoDB data reset successful');
+      }
+    } catch (error) {
+      console.error('Error resetting MongoDB data:', error);
+    }
+    
+    // Clear local storage data
     if (user) {
       // Clear only workout related data from localStorage, preserving user-specific isolation
       removeItem('initialWorkoutPlan', user.id);
       removeItem('customWorkouts', user.id);
       removeItem('onboardingComplete', user.id);
+      removeItem('dietPlans', user.id);
       
       // Alternatively, to clear ALL data for the user:
       // clearUserData(user.id);
