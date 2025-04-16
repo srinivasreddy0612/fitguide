@@ -32,6 +32,18 @@ const nextConfig: NextConfig = {
     // Ignore TypeScript errors during build
     ignoreBuildErrors: true,
   },
+  // Add environment variables configuration
+  env: {
+    // MongoDB connection variables
+    MONGODB_URI: process.env.MONGODB_URI,
+    MONGODB_PASSWORD: process.env.MONGODB_PASSWORD,
+    // Auth and API keys
+    NEXT_PUBLIC_GROQ_API_KEY: process.env.NEXT_PUBLIC_GROQ_API_KEY,
+    NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY,
+    CLERK_SECRET_KEY: process.env.CLERK_SECRET_KEY,
+    // Feature flags
+    USE_FALLBACK: process.env.USE_FALLBACK,
+  },
 };
 
 export default nextConfig;

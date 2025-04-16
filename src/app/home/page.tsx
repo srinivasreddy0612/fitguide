@@ -1,5 +1,5 @@
 "use client"
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { Dumbbell, Apple } from 'lucide-react';
 import { useUser } from '@clerk/nextjs';
 import { useRouter } from 'next/navigation';
@@ -8,6 +8,9 @@ import AICoach from './AICoach';
 import CalendarComponent from './CalendarComponent';
 import WorkoutComponent from './WorkoutComponent';
 import DietPlanComponent from './DietPlanComponent';
+
+// Import our localStorage helpers
+import { getItem, setItem, hasCompletedOnboarding } from '../utils/localStorage';
 
 // Define interfaces for our data types
 interface WorkoutHistoryItem {
@@ -70,7 +73,7 @@ interface WorkoutComponentWorkout extends CustomWorkout {
 }
 
 export default function HomePage(): React.ReactElement {
-  const { user } = useUser();
+  const { user, isLoaded: isUserLoaded } = useUser();
   const router = useRouter();
   
   // State for showing/hiding the chatbot
@@ -91,12 +94,173 @@ export default function HomePage(): React.ReactElement {
   // State for redirecting to onboarding if needed
   const [needsOnboarding, setNeedsOnboarding] = useState<boolean>(false);
   
+  // State to track if data is loaded
+  const [isDataLoaded, setIsDataLoaded] = useState<boolean>(false);
+  
+  // Function to sync data with MongoDB - UPDATED with cleaner logging
+  const syncWithMongoDB = useCallback(async (dataType: string, data: any) => {
+    if (!user) return false;
+    
+    try {
+      // Only log for non-history items to reduce console noise
+      if (!dataType.includes('History')) {
+        console.log(`Syncing ${dataType} with MongoDB...`);
+      }
+      
+      // Use the middleware-free endpoint
+      const response = await fetch('/api/mongodb-data', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          userId: user.id,
+          dataType,
+          data,
+          action: 'save'
+        }),
+      });
+      
+      const result = await response.json();
+      
+      if (!response.ok) {
+        console.error(`MongoDB sync error (${dataType}):`, result.error || 'Unknown error');
+        
+        // Always save to localStorage as fallback
+        setItem(dataType, data, user.id);
+        return false;
+      }
+      
+      // Only log success for non-history items
+      if (!dataType.includes('History')) {
+        console.log(`✅ MongoDB: ${result.message}`);
+      }
+      
+      // Also save to localStorage for offline access
+      setItem(dataType, data, user.id);
+      
+      return true;
+    } catch (error) {
+      console.error(`Error syncing with MongoDB:`, error);
+      
+      // Always save to localStorage as fallback
+      setItem(dataType, data, user.id);
+      
+      return false;
+    }
+  }, [user]);
+  
+  // Function to load data from MongoDB - UPDATED with cleaner logging
+  const loadFromMongoDB = useCallback(async () => {
+    if (!user) return;
+    
+    try {
+      console.log("Loading data from MongoDB...");
+      
+      // Use the middleware-free endpoint
+      const response = await fetch('/api/mongodb-data', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          userId: user.id,
+          action: 'fetch'
+        }),
+      });
+      
+      if (!response.ok) {
+        throw new Error(`MongoDB fetch failed: ${response.status}`);
+      }
+      
+      const data = await response.json();
+      
+      if (!data.success) {
+        throw new Error(data.error || 'Unknown error');
+      }
+      
+      let itemsLoaded = 0;
+      
+      // Process workouts if available
+      if (data.workouts && Array.isArray(data.workouts) && data.workouts.length > 0) {
+        itemsLoaded += data.workouts.length;
+        
+        const processedWorkouts = data.workouts.map((workout: CustomWorkout) => ({
+          ...workout,
+          icon: <Dumbbell className={workout.iconColor || "text-white"} />,
+          id: workout.id || Math.floor(Math.random() * 10000)
+        }));
+        
+        setCustomWorkouts(processedWorkouts);
+        
+        // Also update localStorage for offline use
+        setItem('customWorkouts', data.workouts, user.id);
+      }
+      
+      // Process diet plans if available
+      if (data.dietPlans && Array.isArray(data.dietPlans) && data.dietPlans.length > 0) {
+        itemsLoaded += data.dietPlans.length;
+        
+        const processedDietPlans = data.dietPlans.map((plan: DietPlan) => ({
+          ...plan,
+          icon: <Apple className={plan.iconColor || "text-green-500"} />,
+          id: plan.id || Math.floor(Math.random() * 10000)
+        }));
+        
+        setDietPlans(processedDietPlans);
+        
+        // Also update localStorage for offline use
+        setItem('dietPlans', data.dietPlans, user.id);
+      }
+      
+      // Process workout history if available
+      if (data.workoutHistory && Array.isArray(data.workoutHistory) && data.workoutHistory.length > 0) {
+        itemsLoaded += data.workoutHistory.length;
+        
+        setWorkoutHistory(data.workoutHistory);
+        
+        // Also update localStorage for offline use
+        setItem('workoutHistory', data.workoutHistory, user.id);
+      }
+      
+      // Process diet history if available
+      if (data.dietHistory && Array.isArray(data.dietHistory) && data.dietHistory.length > 0) {
+        itemsLoaded += data.dietHistory.length;
+        
+        setDietHistory(data.dietHistory);
+        
+        // Also update localStorage for offline use
+        setItem('dietHistory', data.dietHistory, user.id);
+      }
+      
+      // Process preferences if available
+      if (data.preferences) {
+        itemsLoaded += 1;
+        
+        // Update preferences in localStorage
+        setItem('onboardingFormData', data.preferences, user.id);
+      }
+      
+      if (itemsLoaded > 0) {
+        console.log(`✅ MongoDB: Loaded ${itemsLoaded} items successfully`);
+        return true;
+      } else {
+        console.log("No data found in MongoDB, falling back to localStorage");
+        return false;
+      }
+    } catch (error) {
+      console.error("MongoDB load error:", error);
+      console.log("Falling back to localStorage...");
+      return false;
+    }
+  }, [user, setCustomWorkouts, setDietPlans, setWorkoutHistory, setDietHistory]);
+  
   // Function to toggle chatbot visibility
   const toggleChatbot = (): void => {
     setShowChatbot(prev => !prev);
   };
   
-  // Function to add a new workout from AI
+  // Function to add a new workout from AI with user isolation
   const addWorkout = (workout: CustomWorkout): void => {
     // Make sure we have an icon for the workout
     const workoutWithIcon: CustomWorkout = {
@@ -106,21 +270,30 @@ export default function HomePage(): React.ReactElement {
       id: workout.id || Math.floor(Math.random() * 10000)
     };
     
-    setCustomWorkouts(prev => [...prev, workoutWithIcon]);
-    
-    // Also save to localStorage to persist the data
-    const existingWorkouts = JSON.parse(localStorage.getItem('customWorkouts') || '[]');
-    // Make sure we're storing a serializable version without React elements
-    const serializableWorkout = {
-      ...workout,
-      // Don't include the icon when storing in localStorage as it's a React element
-      icon: undefined,
-      id: workout.id || Math.floor(Math.random() * 10000)
-    };
-    localStorage.setItem('customWorkouts', JSON.stringify([...existingWorkouts, serializableWorkout]));
+    // Update local state
+    setCustomWorkouts(prev => {
+      const newWorkouts = [...prev, workoutWithIcon];
+      
+      // Sync with MongoDB in the background
+      if (user) {
+        // Create serializable version for storage
+        const serializableWorkouts = newWorkouts.map(w => ({
+          ...w,
+          icon: undefined,
+        }));
+        
+        // Update localStorage
+        setItem('customWorkouts', serializableWorkouts, user.id);
+        
+        // Sync with MongoDB (non-blocking)
+        syncWithMongoDB('workout', serializableWorkouts);
+      }
+      
+      return newWorkouts;
+    });
   };
   
-  // Function to add a new diet plan from AI
+  // Function to add a new diet plan from AI with user isolation
   const addDietPlan = (dietPlan: DietPlan): void => {
     // Make sure we have an icon for the diet plan
     const dietPlanWithIcon: DietPlan = {
@@ -130,18 +303,27 @@ export default function HomePage(): React.ReactElement {
       id: dietPlan.id || Math.floor(Math.random() * 10000)
     };
     
-    setDietPlans(prev => [...prev, dietPlanWithIcon]);
-    
-    // Also save to localStorage to persist the data
-    const existingDietPlans = JSON.parse(localStorage.getItem('dietPlans') || '[]');
-    // Make sure we're storing a serializable version without React elements
-    const serializableDietPlan = {
-      ...dietPlan,
-      // Don't include the icon when storing in localStorage as it's a React element
-      icon: undefined,
-      id: dietPlan.id || Math.floor(Math.random() * 10000)
-    };
-    localStorage.setItem('dietPlans', JSON.stringify([...existingDietPlans, serializableDietPlan]));
+    // Update local state
+    setDietPlans(prev => {
+      const newDietPlans = [...prev, dietPlanWithIcon];
+      
+      // Sync with MongoDB in the background
+      if (user) {
+        // Create serializable version for storage
+        const serializableDietPlans = newDietPlans.map(plan => ({
+          ...plan,
+          icon: undefined,
+        }));
+        
+        // Update localStorage
+        setItem('dietPlans', serializableDietPlans, user.id);
+        
+        // Sync with MongoDB (non-blocking)
+        syncWithMongoDB('dietPlan', serializableDietPlans);
+      }
+      
+      return newDietPlans;
+    });
   };
   
   // Function to redirect to onboarding
@@ -149,130 +331,208 @@ export default function HomePage(): React.ReactElement {
     router.push('/onboarding');
   };
   
-  // Check for onboarding status and load workout & diet data
+  // Check if user needs onboarding when loaded
   useEffect(() => {
-    if (typeof window === 'undefined') return;
+    if (!isUserLoaded || !user) return;
     
-    console.log("HomePage mounted - checking for workout plans and diet plans");
+    console.log("Checking if user needs onboarding...");
     
-    // Check if this is a direct access or coming from onboarding
+    // Check if the URL includes the skip parameter
     const url = new URL(window.location.href);
     const skipCheck = url.searchParams.get('skipOnboardingCheck') === 'true';
     
-    // Check both the cookie and localStorage for onboarding completion
-    const isOnboardingComplete = document.cookie
-      .split('; ')
-      .find(row => row.startsWith('onboardingComplete='))
-      ?.split('=')[1];
+    if (skipCheck) {
+      // Skip onboarding check if explicitly requested
+      console.log("Skipping onboarding check due to URL parameter");
+      loadUserData();
+      return;
+    }
+    
+    // For new users, do a more aggressive check
+    // Check localStorage directly for ANY user data
+    if (typeof window !== 'undefined') {
+      const allLocalStorageKeys = Object.keys(localStorage);
+      const userKeys = allLocalStorageKeys.filter(key => key.includes(user.id));
+      console.log("User localStorage keys:", userKeys);
       
-    console.log("Onboarding complete from cookie:", isOnboardingComplete);
-    
-    // If we don't have a cookie but have the localStorage flag, try to set the cookie
-    if (!isOnboardingComplete && localStorage.getItem('onboardingComplete') === 'true') {
-      console.log("Found onboardingComplete in localStorage but not in cookie, setting cookie");
-      const expiryDate = new Date();
-      expiryDate.setDate(expiryDate.getDate() + 30); // 30 days from now
-      document.cookie = `onboardingComplete=true; path=/; expires=${expiryDate.toUTCString()}; SameSite=Lax`;
+      // If the user has NO data at all, they're definitely new
+      if (userKeys.length === 0) {
+        console.log("New user detected - no localStorage keys found");
+        setNeedsOnboarding(true);
+        return;
+      }
     }
     
-    // Determine if we need to redirect to onboarding
-    if (!isOnboardingComplete && !skipCheck && !localStorage.getItem('onboardingComplete')) {
-      console.log("Needs onboarding - no cookie or localStorage flag");
+    // Regular onboarding check for returning users
+    const onboardingComplete = hasCompletedOnboarding(user.id);
+    
+    if (!onboardingComplete) {
+      console.log("User needs onboarding - redirecting");
       setNeedsOnboarding(true);
-      return; // Don't load workout data yet
+    } else {
+      console.log("Onboarding complete, loading user data");
+      loadUserData();
     }
+  }, [isUserLoaded, user, loadFromMongoDB]);
+  
+  // Function to load user-specific data
+  const loadUserData = async (): Promise<void> => {
+    if (!user) return;
     
-    // First try loading the initial workout plan from onboarding
-    const initialPlanJson = localStorage.getItem('initialWorkoutPlan');
+    console.log("Loading data for user:", user.id);
     
-    if (initialPlanJson) {
+    try {
+      // Try to load from MongoDB first
       try {
-        console.log("Found initial workout plan in localStorage");
-        const initialPlans = JSON.parse(initialPlanJson);
+        const mongoSuccess = await loadFromMongoDB();
         
-        // Process each workout to ensure it has an icon
-        const processedWorkouts = initialPlans.map((workout: CustomWorkout) => ({
+        // If MongoDB loading was successful, we're done
+        if (mongoSuccess) {
+          setIsDataLoaded(true);
+          return;
+        }
+        
+        // Otherwise, fall back to localStorage
+        console.log("No data found in MongoDB, falling back to localStorage");
+      } catch (mongoError) {
+        console.error("Error loading from MongoDB, falling back to localStorage:", mongoError);
+      }
+      
+      // Immediately after navigation from onboarding, check URL parameters
+      const url = new URL(window.location.href);
+      const skipCheck = url.searchParams.get('skipOnboardingCheck') === 'true';
+      
+      // Force a small delay when coming directly from onboarding
+      // to ensure localStorage has time to be fully updated
+      if (skipCheck) {
+        console.log("Coming from onboarding, waiting briefly for storage to settle");
+      }
+      
+      // Load initial workout plan - most critical part for onboarding users
+      const initialPlanJson = getItem('initialWorkoutPlan', user.id);
+      console.log("Retrieved initial plan from localStorage:", initialPlanJson);
+      
+      if (initialPlanJson && Array.isArray(initialPlanJson) && initialPlanJson.length > 0) {
+        console.log("Loading initial workout plan with", initialPlanJson.length, "workouts");
+        
+        const processedWorkouts = initialPlanJson.map((workout: CustomWorkout) => ({
           ...workout,
           icon: <Dumbbell className={workout.iconColor || "text-white"} />,
           id: workout.id || Math.floor(Math.random() * 10000)
         }));
         
-        // Only add if we don't already have workouts (to avoid duplicates on rerenders)
-        if (customWorkouts.length === 0) {
-          console.log("Setting initial workout plans:", processedWorkouts);
-          setCustomWorkouts(processedWorkouts);
+        setCustomWorkouts(processedWorkouts);
+        console.log("Successfully loaded", processedWorkouts.length, "workouts from initial plan");
+        
+        // Also ensure these are saved to customWorkouts for consistency
+        if (processedWorkouts.length > 0) {
+          const serializableWorkouts = processedWorkouts.map(workout => ({
+            ...workout,
+            icon: undefined  // Don't include React elements
+          }));
+          setItem('customWorkouts', serializableWorkouts, user.id);
+          console.log("Also saved to customWorkouts for consistency");
+          
+          // Sync with MongoDB
+          syncWithMongoDB('workout', serializableWorkouts);
         }
-      } catch (error) {
-        console.error("Error loading initial workout plan:", error);
-      }
-    } else {
-      console.log("No initial workout plan found in localStorage");
-      
-      // If no initial plan, try loading custom workouts
-      const customWorkoutsJson = localStorage.getItem('customWorkouts');
-      if (customWorkoutsJson && customWorkouts.length === 0) {
-        try {
-          const savedWorkouts = JSON.parse(customWorkoutsJson);
-          const processedWorkouts = savedWorkouts.map((workout: CustomWorkout) => ({
+      } else {
+        // Troubleshooting if workout plan not found
+        console.log("Initial workout plan not found or empty, checking for custom workouts");
+        
+        // Try to get all localStorage keys for this user
+        if (typeof window !== 'undefined') {
+          // Debug what's in localStorage
+          const allLocalStorageKeys = Object.keys(localStorage);
+          const userKeys = allLocalStorageKeys.filter(key => key.includes(user.id));
+          console.log("All user localStorage keys:", userKeys);
+        }
+        
+        // Load custom workouts if no initial plan
+        const customWorkoutsJson = getItem('customWorkouts', user.id);
+        
+        if (customWorkoutsJson && Array.isArray(customWorkoutsJson) && customWorkoutsJson.length > 0) {
+          console.log("Loading", customWorkoutsJson.length, "custom workouts");
+          
+          const processedWorkouts = customWorkoutsJson.map((workout: CustomWorkout) => ({
             ...workout,
             icon: <Dumbbell className={workout.iconColor || "text-white"} />,
             id: workout.id || Math.floor(Math.random() * 10000)
           }));
+          
           setCustomWorkouts(processedWorkouts);
-          console.log("Loaded saved custom workouts:", processedWorkouts);
-        } catch (error) {
-          console.error("Error loading custom workouts:", error);
+          console.log("Successfully loaded custom workouts");
+          
+          // Sync with MongoDB
+          syncWithMongoDB('workout', customWorkoutsJson);
+        } else if (skipCheck) {
+          // If we came from onboarding but no data found, try once more after delay
+          console.log("Came from onboarding but no data found. Trying once more after delay...");
+          
+          setTimeout(() => {
+            const initialPlanRetry = getItem('initialWorkoutPlan', user.id);
+            if (initialPlanRetry && Array.isArray(initialPlanRetry) && initialPlanRetry.length > 0) {
+              console.log("Found data after retry!");
+              const processedWorkouts = initialPlanRetry.map((workout: CustomWorkout) => ({
+                ...workout,
+                icon: <Dumbbell className={workout.iconColor || "text-white"} />,
+                id: workout.id || Math.floor(Math.random() * 10000)
+              }));
+              
+              setCustomWorkouts(processedWorkouts);
+              
+              // Sync with MongoDB
+              syncWithMongoDB('workout', initialPlanRetry);
+            }
+          }, 1000);
+        } else {
+          console.log("No workout data found for user, they may need to complete onboarding");
         }
       }
-    }
-    
-    // Load diet plans if available
-    const dietPlansJson = localStorage.getItem('dietPlans');
-    if (dietPlansJson && dietPlans.length === 0) {
-      try {
-        const savedDietPlans = JSON.parse(dietPlansJson);
-        const processedDietPlans = savedDietPlans.map((plan: DietPlan) => ({
+      
+      // Load diet plans
+      const dietPlansJson = getItem('dietPlans', user.id);
+      if (dietPlansJson && Array.isArray(dietPlansJson) && dietPlansJson.length > 0) {
+        console.log("Loading diet plans");
+        const processedDietPlans = dietPlansJson.map((plan: DietPlan) => ({
           ...plan,
           icon: <Apple className={plan.iconColor || "text-green-500"} />,
           id: plan.id || Math.floor(Math.random() * 10000)
         }));
+        
         setDietPlans(processedDietPlans);
-        console.log("Loaded saved diet plans:", processedDietPlans);
-      } catch (error) {
-        console.error("Error loading diet plans:", error);
+        
+        // Sync with MongoDB
+        syncWithMongoDB('dietPlan', dietPlansJson);
       }
-    }
-    
-    // If there's no cookie but we have workout data, try to set the cookie
-    if (!isOnboardingComplete && (initialPlanJson || localStorage.getItem('customWorkouts'))) {
-      const expiryDate = new Date();
-      expiryDate.setDate(expiryDate.getDate() + 30); // 30 days from now
-      document.cookie = `onboardingComplete=true; path=/; expires=${expiryDate.toUTCString()}; SameSite=Lax`;
-      console.log("Set onboardingComplete cookie as it was missing but we have workout data");
-    }
-    
-    // Load workout history if available
-    const workoutHistoryJson = localStorage.getItem('workoutHistory');
-    if (workoutHistoryJson) {
-      try {
-        const savedHistory = JSON.parse(workoutHistoryJson);
-        setWorkoutHistory(savedHistory);
-      } catch (error) {
-        console.error("Error loading workout history:", error);
+      
+      // Load workout history
+      const workoutHistoryJson = getItem('workoutHistory', user.id);
+      if (workoutHistoryJson && Array.isArray(workoutHistoryJson)) {
+        console.log("Loading workout history");
+        setWorkoutHistory(workoutHistoryJson);
+        
+        // Sync with MongoDB
+        syncWithMongoDB('workoutHistory', workoutHistoryJson);
       }
-    }
-    
-    // Load diet history if available
-    const dietHistoryJson = localStorage.getItem('dietHistory');
-    if (dietHistoryJson) {
-      try {
-        const savedDietHistory = JSON.parse(dietHistoryJson);
-        setDietHistory(savedDietHistory);
-      } catch (error) {
-        console.error("Error loading diet history:", error);
+      
+      // Load diet history
+      const dietHistoryJson = getItem('dietHistory', user.id);
+      if (dietHistoryJson && Array.isArray(dietHistoryJson)) {
+        console.log("Loading diet history");
+        setDietHistory(dietHistoryJson);
+        
+        // Sync with MongoDB
+        syncWithMongoDB('dietHistory', dietHistoryJson);
       }
+      
+      // Mark data as loaded
+      setIsDataLoaded(true);
+    } catch (error) {
+      console.error("Error loading user data:", error);
+      setIsDataLoaded(true); // Still mark as loaded even on error
     }
-  }, [customWorkouts.length, dietPlans.length, router]);
+  };
   
   // If we need onboarding, redirect after a short delay
   useEffect(() => {
@@ -284,7 +544,7 @@ export default function HomePage(): React.ReactElement {
       redirectTimer = setTimeout(() => {
         console.log("Redirecting to onboarding...");
         router.push('/onboarding');
-      }, 1000);
+      }, 500);
     }
     
     return () => {
@@ -294,30 +554,42 @@ export default function HomePage(): React.ReactElement {
   
   // Save workout history when it changes
   useEffect(() => {
-    if (typeof window === 'undefined') return;
+    if (typeof window === 'undefined' || !user || workoutHistory.length === 0) return;
     
-    if (workoutHistory.length > 0) {
-      localStorage.setItem('workoutHistory', JSON.stringify(workoutHistory));
-    }
-  }, [workoutHistory]);
+    // Save to localStorage
+    setItem('workoutHistory', workoutHistory, user.id);
+    
+    // Also sync with MongoDB
+    syncWithMongoDB('workoutHistory', workoutHistory);
+  }, [workoutHistory, user, syncWithMongoDB]);
   
   // Save diet history when it changes
   useEffect(() => {
-    if (typeof window === 'undefined') return;
+    if (typeof window === 'undefined' || !user || dietHistory.length === 0) return;
     
-    if (dietHistory.length > 0) {
-      localStorage.setItem('dietHistory', JSON.stringify(dietHistory));
-    }
-  }, [dietHistory]);
+    // Save to localStorage
+    setItem('dietHistory', dietHistory, user.id);
+    
+    // Also sync with MongoDB
+    syncWithMongoDB('dietHistory', dietHistory);
+  }, [dietHistory, user, syncWithMongoDB]);
   
-  // If we need onboarding, show a loading state
-  if (needsOnboarding) {
+  // If not loaded or needs onboarding, show a loading state
+  if (!isUserLoaded || needsOnboarding || !isDataLoaded) {
     return (
       <div className="min-h-screen bg-black text-white font-sans flex items-center justify-center">
         <div className="absolute inset-0 bg-[url('/api/placeholder/1920/1080')] bg-cover bg-center opacity-3"></div>
         <div className="relative text-center">
-          <h1 className="text-2xl font-light mb-4">Setting up your fitness journey...</h1>
-          <div className="animate-pulse">Redirecting to onboarding...</div>
+          <h1 className="text-2xl font-light mb-4">
+            {needsOnboarding 
+              ? "Setting up your fitness journey..." 
+              : "Loading your personal fitness data..."}
+          </h1>
+          <div className="animate-pulse">
+            {needsOnboarding 
+              ? "Redirecting to onboarding..." 
+              : "Please wait..."}
+          </div>
         </div>
       </div>
     );

@@ -1,8 +1,11 @@
 "use client"
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { CheckCircle, ArrowRight, ArrowLeft, Dumbbell, Calendar, Clock, Target, Award } from 'lucide-react';
 import { useUser } from '@clerk/nextjs';
+
+// Import our new localStorage helper
+import { setItem, getItem } from '../utils/localStorage';
 
 // Define TypeScript interfaces
 interface Option {
@@ -361,71 +364,112 @@ const OnboardingPage: React.FC = () => {
     return workouts;
   };
 
-  const generateWorkoutPlan = async (): Promise<void> => {
-    setIsGenerating(true);
-    setError('');
+// This is the updated generateWorkoutPlan function for the OnboardingPage component
+
+const generateWorkoutPlan = async (): Promise<void> => {
+  setIsGenerating(true);
+  setError('');
+  
+  try {
+    console.log("Generating workout plan with form data:", formData);
+    
+    // Generate workout plan directly on the client
+    console.log("Generating workout plan directly on client");
+    const workoutPlan = generateFallbackWorkoutPlan();
+    
+    // Make sure user ID is available
+    if (!user?.id) {
+      throw new Error("User ID not available, cannot complete onboarding");
+    }
+    
+    // Store in localStorage with user isolation - use arrays to ensure consistent format
+    setItem('onboardingFormData', {
+      name: user.firstName || 'User',
+      ...formData
+    }, user.id);
+    
+    setItem('onboardingComplete', 'true', user.id);
+    
+    // Important: Make sure we store the workout plan properly as an array
+    setItem('initialWorkoutPlan', workoutPlan, user.id);
+    setItem('customWorkouts', [], user.id); // Initialize empty array for custom workouts
+    
+    // Log what we're storing
+    console.log("Storing workout plan:", workoutPlan);
+    console.log("User ID:", user.id);
+    
+    // Double-check data was stored correctly
+    const storedPlan = getItem('initialWorkoutPlan', user.id);
+    console.log("Verified stored plan:", storedPlan);
+    
+    // Set client-side cookie - both general and user-specific
+    const expiryDate = new Date();
+    expiryDate.setDate(expiryDate.getDate() + 30); // 30 days from now
+    
+    // Set general cookie for backward compatibility
+    document.cookie = `onboardingComplete=true; path=/; expires=${expiryDate.toUTCString()}; SameSite=Lax`;
+    
+    // Set user-specific cookie
+    document.cookie = `user_${user.id}_onboardingComplete=true; path=/; expires=${expiryDate.toUTCString()}; SameSite=Lax`;
+    
+    console.log("Client: Set onboardingComplete cookies");
     
     try {
-      console.log("Generating workout plan with form data:", formData);
+      // Try to call the API to mark onboarding as complete
+      const completeResponse = await fetch('/api/complete-onboarding', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          userId: user.id,
+          workoutPlan: workoutPlan
+        }),
+      });
       
-      // Store in localStorage first as a backup
-      localStorage.setItem('onboardingFormData', JSON.stringify({
-        name: user?.firstName || 'User',
-        ...formData
-      }));
-      
-      // Generate workout plan directly on the client
-      console.log("Generating workout plan directly on client");
-      const workoutPlan = generateFallbackWorkoutPlan();
-      
-      // Store in localStorage
-      localStorage.setItem('onboardingComplete', 'true');
-      localStorage.setItem('initialWorkoutPlan', JSON.stringify(workoutPlan));
-      
-      // Set client-side cookie
-      const expiryDate = new Date();
-      expiryDate.setDate(expiryDate.getDate() + 30); // 30 days from now
-      document.cookie = `onboardingComplete=true; path=/; expires=${expiryDate.toUTCString()}; SameSite=Lax`;
-      
-      console.log("Client: Set onboardingComplete cookie:", document.cookie);
-      
-      try {
-        // Try to call the API to mark onboarding as complete
-        const completeResponse = await fetch('/api/complete-onboarding', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            workoutPlan: workoutPlan
-          }),
-        });
-        
-        if (!completeResponse.ok) {
-          console.error("Failed to mark onboarding as complete via API, status:", completeResponse.status);
-          // We can still proceed because we saved to localStorage and set the cookie
-        } else {
-          console.log("Onboarding marked as complete via API");
-        }
-      } catch (completeError) {
-        console.error("Error marking onboarding as complete:", completeError);
-        // We can continue since we've already set the cookie and localStorage
+      if (!completeResponse.ok) {
+        console.error("Failed to mark onboarding as complete via API, status:", completeResponse.status);
+        // We can still proceed because we saved to localStorage and set the cookie
+      } else {
+        console.log("Onboarding marked as complete via API");
       }
-      
-      // Add a small delay to ensure cookies are set
-      await new Promise(resolve => setTimeout(resolve, 500));
-      
-      // Navigate to home
-      router.push('/home?skipOnboardingCheck=true');
-      
-    } catch (error) {
-      console.error('Error generating workout plan:', error);
-      setError('There was an issue creating your workout plan. Please try again.');
-      setIsGenerating(false);
+    } catch (completeError) {
+      console.error("Error marking onboarding as complete:", completeError);
+      // We can continue since we've already set the cookie and localStorage
     }
-  };
+    
+    // Add an X-Header to indicate onboarding completion for middleware
+    const customHeaders = new Headers();
+    customHeaders.append('X-Onboarding-Complete', 'true');
+    
+    // Add a small delay to ensure cookies and storage are set
+    await new Promise(resolve => setTimeout(resolve, 800));
+    
+    // Navigate to home with special parameter to skip onboarding check
+    router.push('/home?skipOnboardingCheck=true');
+    
+  } catch (error) {
+    console.error('Error generating workout plan:', error);
+    setError('There was an issue creating your workout plan. Please try again.');
+    setIsGenerating(false);
+  }
+};
 
   const currentStepData = steps[currentStep];
+
+  // Reset local storage when starting onboarding
+  useEffect(() => {
+    if (user && currentStep === 0) {
+      // Clear any existing workout data for a fresh start
+      // but preserve other user settings
+      if (typeof window !== 'undefined') {
+        // Clear workout-related data only
+        setItem('initialWorkoutPlan', null, user.id);
+        setItem('customWorkouts', [], user.id);
+        setItem('onboardingComplete', null, user.id);
+      }
+    }
+  }, [user]);
 
   return (
     <div className="min-h-screen bg-black text-white font-sans">

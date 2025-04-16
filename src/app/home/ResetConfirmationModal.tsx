@@ -2,6 +2,10 @@
 import React from 'react';
 import { X, RefreshCw } from 'lucide-react';
 import { useRouter } from 'next/navigation';
+import { useUser } from '@clerk/nextjs';
+
+// Import our localStorage helper
+import { removeItem, clearUserData } from '../utils/localStorage';
 
 interface ResetConfirmationModalProps {
   isOpen: boolean;
@@ -13,18 +17,27 @@ const ResetConfirmationModal: React.FC<ResetConfirmationModalProps> = ({
   onClose
 }) => {
   const router = useRouter();
+  const { user } = useUser();
 
   // If modal is not open, don't render anything
   if (!isOpen) return null;
 
   // Function to clear data and start onboarding
   const handleReset = () => {
-    // Clear all workout related data from localStorage
-    localStorage.removeItem('initialWorkoutPlan');
-    localStorage.removeItem('customWorkouts');
-    
-    // Set onboardingComplete to false
-    localStorage.removeItem('onboardingComplete');
+    if (user) {
+      // Clear only workout related data from localStorage, preserving user-specific isolation
+      removeItem('initialWorkoutPlan', user.id);
+      removeItem('customWorkouts', user.id);
+      removeItem('onboardingComplete', user.id);
+      
+      // Alternatively, to clear ALL data for the user:
+      // clearUserData(user.id);
+    } else {
+      // If no user context available, try to clear with default handling
+      removeItem('initialWorkoutPlan');
+      removeItem('customWorkouts');
+      removeItem('onboardingComplete');
+    }
     
     // Clear the cookie
     document.cookie = 'onboardingComplete=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT; SameSite=Lax';

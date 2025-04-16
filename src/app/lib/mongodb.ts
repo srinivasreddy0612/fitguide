@@ -1,46 +1,39 @@
 // lib/mongodb.ts
 import mongoose from 'mongoose';
 
+// Get MongoDB connection string
 const MONGODB_URI = process.env.MONGODB_URI as string;
 
+// Simple connection validator
 if (!MONGODB_URI) {
+  console.error('❌ MONGODB_URI environment variable not found');
   throw new Error('Please define the MONGODB_URI environment variable');
 }
 
+// Track connection status
+let isConnected = false;
+
 /**
- * Global is used here to maintain a cached connection across hot reloads
- * in development. This prevents connections growing exponentially
- * during API Route usage.
+ * Connect to MongoDB database with reduced logging
  */
-let cached = global.mongoose;
-
-if (!cached) {
-  cached = global.mongoose = { conn: null, promise: null };
-}
-
 async function connectToDatabase() {
-  if (cached.conn) {
-    return cached.conn;
+  // If already connected, return mongoose silently
+  if (isConnected) {
+    return mongoose;
   }
 
-  if (!cached.promise) {
-    const opts = {
-      bufferCommands: false,
-    };
-
-    cached.promise = mongoose.connect(MONGODB_URI, opts).then((mongoose) => {
-      return mongoose;
-    });
-  }
-  
   try {
-    cached.conn = await cached.promise;
-  } catch (e) {
-    cached.promise = null;
-    throw e;
+    // Connect to MongoDB (no logging here to reduce console noise)
+    await mongoose.connect(MONGODB_URI);
+    
+    // Set connected flag
+    isConnected = true;
+    
+    return mongoose;
+  } catch (error) {
+    console.error('❌ MongoDB connection error:', error);
+    throw error;
   }
-
-  return cached.conn;
 }
 
 export default connectToDatabase;
