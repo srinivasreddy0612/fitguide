@@ -219,34 +219,75 @@ export const useLocalStorage = () => {
 };
 
 // Check if a user has completed onboarding
-export const hasCompletedOnboarding = (userId: string | null = null): boolean => {
-  if (typeof window === 'undefined') return false;
-  
-  try {
-    // Check localStorage first
-    const onboardingCompleteInStorage = getItem('onboardingComplete', userId) === 'true';
-    if (onboardingCompleteInStorage) return true;
-    
-    // Check if the user has workout plans
-    const hasInitialPlan = getItem('initialWorkoutPlan', userId) !== null;
-    const hasCustomWorkouts = getItem('customWorkouts', userId) !== null 
-                           && Array.isArray(getItem('customWorkouts', userId)) 
-                           && getItem('customWorkouts', userId).length > 0;
-    if (hasInitialPlan || hasCustomWorkouts) return true;
-    
-    // Check for user-specific cookie
-    if (userId) {
-      const userCookieRegex = new RegExp(`user_${userId}_onboardingComplete=true`);
-      if (userCookieRegex.test(document.cookie)) return true;
+export const hasCompletedOnboarding = async (userId: string | null = null): Promise<boolean> => {
+    // If no userId, can't check MongoDB
+    if (!userId) {
+      return checkLocalOnboarding(userId);
     }
     
-    // Also check general cookie (for backward compatibility)
-    const generalCookieRegex = /onboardingComplete=true/;
-    if (generalCookieRegex.test(document.cookie)) return true;
+    try {
+      // First try MongoDB
+      const response = await fetch('/api/mongodb-data', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          userId,
+          action: 'fetch'
+        }),
+      });
+      
+      if (response.ok) {
+        const data = await response.json();
+        
+        // If user has any data in MongoDB, consider onboarding complete
+        if (
+          (data.workouts && data.workouts.length > 0) || 
+          (data.dietPlans && data.dietPlans.length > 0) ||
+          data.preferences
+        ) {
+          return true;
+        }
+      }
+    } catch (error) {
+      console.error('Error checking MongoDB for onboarding status:', error);
+      // Fall back to localStorage if MongoDB check fails
+    }
     
-    return false;
-  } catch (error) {
-    console.error('Error checking onboarding status:', error);
-    return false;
-  }
-};
+    // Fall back to localStorage check
+    return checkLocalOnboarding(userId);
+  };
+  
+  // Helper function for the local storage portion of the check
+  export const checkLocalOnboarding = (userId: string | null = null): boolean => {
+    if (typeof window === 'undefined') return false;
+    
+    try {
+      // Check localStorage first
+      const onboardingCompleteInStorage = getItem('onboardingComplete', userId) === 'true';
+      if (onboardingCompleteInStorage) return true;
+      
+      // Check if the user has workout plans
+      const hasInitialPlan = getItem('initialWorkoutPlan', userId) !== null;
+      const hasCustomWorkouts = getItem('customWorkouts', userId) !== null 
+                             && Array.isArray(getItem('customWorkouts', userId)) 
+                             && getItem('customWorkouts', userId).length > 0;
+      if (hasInitialPlan || hasCustomWorkouts) return true;
+      
+      // Check for user-specific cookie
+      if (userId) {
+        const userCookieRegex = new RegExp(`user_${userId}_onboardingComplete=true`);
+        if (userCookieRegex.test(document.cookie)) return true;
+      }
+      
+      // Also check general cookie (for backward compatibility)
+      const generalCookieRegex = /onboardingComplete=true/;
+      if (generalCookieRegex.test(document.cookie)) return true;
+      
+      return false;
+    } catch (error) {
+      console.error('Error checking onboarding status:', error);
+      return false;
+    }
+  };

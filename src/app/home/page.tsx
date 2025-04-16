@@ -352,52 +352,8 @@ export default function HomePage(): React.ReactElement {
     router.push('/onboarding');
   };
   
-  // Check if user needs onboarding when loaded
-  useEffect(() => {
-    if (!isUserLoaded || !user) return;
-    
-    console.log("Checking if user needs onboarding...");
-    
-    // Check if the URL includes the skip parameter
-    const url = new URL(window.location.href);
-    const skipCheck = url.searchParams.get('skipOnboardingCheck') === 'true';
-    
-    if (skipCheck) {
-      // Skip onboarding check if explicitly requested
-      console.log("Skipping onboarding check due to URL parameter");
-      loadUserData();
-      return;
-    }
-    
-    // For new users, do a more aggressive check
-    // Check localStorage directly for ANY user data
-    if (typeof window !== 'undefined') {
-      const allLocalStorageKeys = Object.keys(localStorage);
-      const userKeys = allLocalStorageKeys.filter(key => key.includes(user.id));
-      console.log("User localStorage keys:", userKeys);
-      
-      // If the user has NO data at all, they're definitely new
-      if (userKeys.length === 0) {
-        console.log("New user detected - no localStorage keys found");
-        setNeedsOnboarding(true);
-        return;
-      }
-    }
-    
-    // Regular onboarding check for returning users
-    const onboardingComplete = hasCompletedOnboarding(user.id);
-    
-    if (!onboardingComplete) {
-      console.log("User needs onboarding - redirecting");
-      setNeedsOnboarding(true);
-    } else {
-      console.log("Onboarding complete, loading user data");
-      loadUserData();
-    }
-  }, [isUserLoaded, user, loadFromMongoDB]);
-  
   // Function to load user-specific data
-  const loadUserData = async (): Promise<void> => {
+  const loadUserData = useCallback(async (): Promise<void> => {
     if (!user) return;
     
     console.log("Loading data for user:", user.id);
@@ -553,7 +509,91 @@ export default function HomePage(): React.ReactElement {
       console.error("Error loading user data:", error);
       setIsDataLoaded(true); // Still mark as loaded even on error
     }
-  };
+  }, [user, loadFromMongoDB, syncWithMongoDB, setCustomWorkouts, setDietPlans, setWorkoutHistory, setDietHistory]);
+
+  // Check if user needs onboarding when loaded
+  useEffect(() => {
+    if (!isUserLoaded || !user) return;
+    
+    // Define an async function to check for existing data
+    const checkUserData = async () => {
+      console.log("Checking if user needs onboarding...");
+      
+      // Check if the URL includes the skip parameter
+      const url = new URL(window.location.href);
+      const skipCheck = url.searchParams.get('skipOnboardingCheck') === 'true';
+      
+      if (skipCheck) {
+        // Skip onboarding check if explicitly requested
+        console.log("Skipping onboarding check due to URL parameter");
+        loadUserData();
+        return;
+      }
+      
+      // First, check MongoDB for existing data
+      try {
+        const response = await fetch('/api/mongodb-data', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            userId: user.id,
+            action: 'fetch'
+          }),
+        });
+        
+        if (response.ok) {
+          const data = await response.json();
+          
+          // Check if user has any workout data or diet plans in MongoDB
+          if (
+            (data.workouts && data.workouts.length > 0) || 
+            (data.dietPlans && data.dietPlans.length > 0)
+          ) {
+            console.log("Found existing data in MongoDB, skipping onboarding");
+            loadUserData();
+            return;
+          }
+        }
+      } catch (error) {
+        console.error("Error checking MongoDB for existing data:", error);
+        // Continue with localStorage check if MongoDB check fails
+      }
+      
+      // For new users, check localStorage as backup
+      if (typeof window !== 'undefined') {
+        const allLocalStorageKeys = Object.keys(localStorage);
+        const userKeys = allLocalStorageKeys.filter(key => key.includes(user.id));
+        console.log("User localStorage keys:", userKeys);
+        
+        // If the user has NO data at all, they're definitely new
+        if (userKeys.length === 0) {
+          console.log("New user detected - no localStorage keys found");
+          setNeedsOnboarding(true);
+          return;
+        }
+        
+        // Check for onboarding completion in localStorage
+        const onboardingComplete = hasCompletedOnboarding(user.id);
+        
+        if (!onboardingComplete) {
+          console.log("User needs onboarding - no completion flag found");
+          setNeedsOnboarding(true);
+        } else {
+          console.log("Onboarding complete in localStorage, loading user data");
+          loadUserData();
+        }
+      } else {
+        // If we can't access localStorage (SSR), default to onboarding
+        console.log("Cannot access localStorage, defaulting to onboarding");
+        setNeedsOnboarding(true);
+      }
+    };
+    
+    // Execute the check
+    checkUserData();
+  }, [isUserLoaded, user, loadUserData]);
   
   // If we need onboarding, redirect after a short delay
   useEffect(() => {
