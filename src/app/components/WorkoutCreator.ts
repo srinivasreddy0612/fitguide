@@ -1,4 +1,3 @@
-// app/components/WorkoutCreator.ts
 "use client"
 
 // Updated prompt to request JSON format directly and be more specific

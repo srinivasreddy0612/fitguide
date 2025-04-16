@@ -1,4 +1,3 @@
-// api/fetch-user-data/route.ts
 import { NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
 import connectToDatabase from '../../lib/mongodb';

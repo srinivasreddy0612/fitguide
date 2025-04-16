@@ -1,9 +1,7 @@
-// api/mongodb-data/route.ts
 import { NextResponse } from 'next/server';
 import mongoose from 'mongoose';
 import connectToDatabase from '../../lib/mongodb';
 
-// Define a better schema for user data with improved uniqueness constraints
 const UserDataSchema = new mongoose.Schema({
   clerkId: { 
     type: String, 
@@ -15,7 +13,6 @@ const UserDataSchema = new mongoose.Schema({
     required: true, 
     enum: ['workout', 'dietPlan', 'workoutHistory', 'dietHistory', 'preferences'],
   },
-  // Add unique composite index to prevent duplicates
   data: { 
     type: mongoose.Schema.Types.Mixed,
     required: true 
@@ -24,11 +21,9 @@ const UserDataSchema = new mongoose.Schema({
   timestamps: true 
 });
 
-// Create a compound index to ensure uniqueness for each user+type combination
 UserDataSchema.index({ clerkId: 1, dataType: 1 }, { unique: false });
 
-// For workout history, create a compound index on clerkId, dataType, and data.id
-// This prevents duplicate history entries with the same ID
+
 UserDataSchema.index({ 
   clerkId: 1, 
   dataType: 1, 
