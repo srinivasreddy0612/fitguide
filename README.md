@@ -19,8 +19,18 @@ https://fitguide-omega.vercel.app/
 - Conversational AI coach that asks about your preferences and creates custom workout plans
 - Multiple workout types — HIIT, strength training, yoga, core, and more
 - Live workout tracking — mark completed exercises in real time
-- Workout calendar — visualize your fitness history and consist
+- Workout calendar — visualize your fitness history and consistency
+- Progress tracking — monitor workout durations and completion rates
+- User authentication and profile management via Clerk
+- MongoDB database for storing workout history and user data
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+## How It Works
+1. User signs up and creates a profile
+2. AI coach (powered by Groq) asks about fitness goals and preferences
+3. Groq AI generates a personalized workout plan through conversation
+4. Workouts are saved to MongoDB
+5. User tracks progress, marks completed exercises, and views history on calendar
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+## Research Context
+Built as a research and portfolio project during MS in Computer Science 
+at Adelphi University, Garden City, NY (2025).
